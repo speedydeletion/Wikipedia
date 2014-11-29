@@ -25,6 +25,7 @@ class cache(object):
     if key in self._cache:
       ret = self._cache[key]
     else:
+      print ("cache",key)
       ret = self._cache[key] = self.fn(*args, **kwargs)
 
     return ret
@@ -36,13 +37,12 @@ class cache(object):
 # from http://stackoverflow.com/questions/3627793/best-output-type-and-encoding-practices-for-repr-functions
 def stdout_encode(u, default='UTF8'):
 
-  if isinstance(sys.stdout, dict):
-    if 'encoding' in sys.stdout.__dict__:
-      encoding = sys.stdout.encoding or default
-    else:
-      encoding = default
-  else:
+  # inside nose test
+  if hasattr(sys.stdout, 'encoding'):
     encoding = sys.stdout.encoding or default
+  else:
+    encoding = default
+
     
   if sys.version_info > (3, 0):
     return u.encode(encoding).decode(encoding)

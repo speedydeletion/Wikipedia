@@ -7,9 +7,9 @@ from request_mock_data import mock_data
 
 
 # mock out _wiki_request
-def _wiki_request(params):
-  return mock_data["_wiki_request calls"][tuple(sorted(params.items()))]
-wikipedia._wiki_request = _wiki_request
+#def _wiki_request(params):
+#  return mock_data["_wiki_request calls"][tuple(sorted(params.items()))]
+#wikipedia._wiki_request = _wiki_request
 
 
 class TestPageSetUp(unittest.TestCase):
@@ -59,7 +59,7 @@ class TestPageSetUp(unittest.TestCase):
   def test_disambiguate(self):
     """Test that page raises an error when a disambiguation page is reached."""
     try:
-      ram = wikipedia.page("Dodge Ram (disambiguation)", auto_suggest=False, redirect=False)
+      ram = wikipedia.page("Smith", auto_suggest=False, redirect=False)
       error_raised = False
     except wikipedia.DisambiguationError as e:
       error_raised = True

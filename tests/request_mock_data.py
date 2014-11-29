@@ -179,7 +179,7 @@ mock_data = {
 
     "great_wall_of_china.geo_seach": ['Great Wall of China'],
 
-    "great_wall_of_china.geo_seach_with_radius": ['Great Wall of China', 'Jinshanling'],
+      "great_wall_of_china.geo_seach_with_radius": ['Great Wall of China', 'Jinshanling', 'Gubeikou'],
 
     "great_wall_of_china.geo_seach_with_existing_article_name": ['Great Wall of China'],
 

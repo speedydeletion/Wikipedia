@@ -9,48 +9,100 @@ from decimal import Decimal
 from .exceptions import (
   PageError, DisambiguationError, RedirectError, HTTPTimeoutError,
   WikipediaException, ODD_ERROR_MESSAGE)
-from .util import cache, stdout_encode, debug
+from .util import cache, stdout_encode
+#, debug
 import re
 import pprint
 
-API_URL = 'http://en.wikipedia.org/w/api.php'
 RATE_LIMIT = False
 RATE_LIMIT_MIN_WAIT = None
-RATE_LIMIT_LAST_CALL = None
 USER_AGENT = 'wikipedia (https://github.com/goldsmith/Wikipedia/)'
+#global_agent=None
 
-
-def set_lang(prefix):
+def _wiki_request(agent, params):
   '''
-  Change the language of the API being requested.
-  Set `prefix` to one of the two letter prefixes found on the `list of all Wikipedias <http://meta.wikimedia.org/wiki/List_of_Wikipedias>`_.
-
-  After setting the language, the cache for ``search``, ``suggest``, and ``summary`` will be cleared.
-
-  .. note:: Make sure you search for page titles in the language that you have set.
+  Make a request to the Wikipedia API using the given search parameters.
+  Returns a parsed dict of the JSON response.
   '''
-  global API_URL
-  API_URL = 'http://' + prefix.lower() + '.wikipedia.org/w/api.php'
+  global USER_AGENT
 
-  for cached_func in (search, suggest, summary):
-    cached_func.clear_cache()
+  params['format'] = 'json'
+  if not 'action' in params:
+    params['action'] = 'query'
 
-def set_wikidata():
-  '''
-  Change the language of the API being requested fior wikidata.
-  Set `prefix` to one of the two letter prefixes found on the `list of all Wikipedias <http://meta.wikimedia.org/wiki/List_of_Wikipedias>`_.
+  headers = {
+    'User-Agent': USER_AGENT
+  }
 
-  After setting the language, the cache for ``search``, ``suggest``, and ``summary`` will be cleared.
+  if RATE_LIMIT and agent.rate_limit_last_call and \
+     agent.rate_limit_last_call + RATE_LIMIT_MIN_WAIT > datetime.now():
 
-  .. note:: Make sure you search for page titles in the language that you have set.
-  '''
-  global API_URL
+    # it hasn't been long enough since the last API call
+    # so wait until we're in the clear to make the request
 
-  API_URL = 'http://www.wikidata.org/w/api.php'
+    wait_time = (agent.rate_limit_last_call + RATE_LIMIT_MIN_WAIT) - datetime.now()
+    time.sleep(int(wait_time.total_seconds()))
+
+  pprint.pprint({'URL':agent.api_url, 'params':params, 'headers':headers})
+
+  r = requests.get(agent.api_url, params=params, headers=headers)
+
+  if RATE_LIMIT:
+    agent.rate_limit_last_call = datetime.now()
+
+  return r.json()
+
+class Agent :
+  def __init__(self):
+    self.api_url = 'http://en.wikipedia.org/w/api.php'
+    self.rate_limit_last_call = None # not global
   
-  for cached_func in (search, suggest, summary):
-    cached_func.clear_cache()
 
+  def clear_cache(self):
+    for cached_func in (search, suggest, summary):
+      cached_func.clear_cache()
+    
+  def set_lang(self,prefix):
+    '''
+    Change the language of the API being requested.
+    Set `prefix` to one of the two letter prefixes found on the `list of all Wikipedias <http://meta.wikimedia.org/wiki/List_of_Wikipedias>`_.
+
+    After setting the language, the cache for ``search``, ``suggest``, and ``summary`` will be cleared.
+
+    .. note:: Make sure you search for page titles in the language that you have set.
+    '''
+    self.api_url = 'http://' + prefix.lower() + '.wikipedia.org/w/api.php'
+    self.clear_cache()
+
+  def set_site_lang(self,site, prefix):
+    '''
+    Change the language of the API being requested.
+    Set `prefix` to one of the two letter prefixes found on the `list of all Wikipedias <http://meta.wikimedia.org/wiki/List_of_Wikipedias>`_.
+
+    After setting the language, the cache for ``search``, ``suggest``, and ``summary`` will be cleared.
+
+    .. note:: Make sure you search for page titles in the language that you have set.
+    '''
+    self.api_url = 'http://%s.wiki%s.org/w/api.php' % (prefix.lower(), site)
+    self.clear_cache()
+
+  def set_wikidata(self):
+    '''
+    Change the url to the API for wikidata.
+    '''
+    self.api_url = 'http://www.wikidata.org/w/api.php'
+    self.clear_cache()
+
+  def page(self, title=None, pageid=None, auto_suggest=True, redirect=True, preload=False):
+    pprint.pprint(self.api_url)
+    return page(title=title, 
+                pageid=pageid, 
+                auto_suggest=auto_suggest, 
+                redirect=redirect, 
+                preload=preload, 
+                agent=self)
+
+global_agent=Agent()
 
 def set_user_agent(user_agent_string):
   '''
@@ -97,7 +149,7 @@ def set_rate_limiting(rate_limit, min_wait=timedelta(milliseconds=50)):
 
 
 @cache
-def search(query, results=10, suggestion=False):
+def search(query, results=10, suggestion=False,agent=global_agent):
   '''
   Do a Wikipedia search for `query`.
 
@@ -117,7 +169,7 @@ def search(query, results=10, suggestion=False):
   if suggestion:
     search_params['srinfo'] = 'suggestion'
 
-  raw_results = _wiki_request(search_params)
+  raw_results = _wiki_request(agent,search_params)
 
   if 'error' in raw_results:
     if raw_results['error']['info'] in ('HTTP request timed out.', 'Pool queue is full'):
@@ -137,7 +189,7 @@ def search(query, results=10, suggestion=False):
 
 
 @cache
-def geosearch(latitude, longitude, title=None, results=10, radius=1000):
+def geosearch(latitude, longitude, title=None, results=10, radius=1000, agent=global_agent):
   '''
   Do a wikipedia geo search for `latitude` and `longitude`
   using HTTP API described in http://www.mediawiki.org/wiki/Extension:GeoData
@@ -162,8 +214,9 @@ def geosearch(latitude, longitude, title=None, results=10, radius=1000):
   }
   if title:
     search_params['titles'] = title
-
-  raw_results = _wiki_request(search_params)
+  pprint.pprint([agent, search_params])
+  pprint.pprint(_wiki_request)
+  raw_results = _wiki_request(agent, search_params)
 
   if 'error' in raw_results:
     if raw_results['error']['info'] in ('HTTP request timed out.', 'Pool queue is full'):
@@ -181,7 +234,7 @@ def geosearch(latitude, longitude, title=None, results=10, radius=1000):
 
 
 @cache
-def suggest(query):
+def suggest(query,agent=global_agent):
   '''
   Get a Wikipedia search suggestion for `query`.
   Returns a string or None if no suggestion was found.
@@ -194,7 +247,7 @@ def suggest(query):
   }
   search_params['srsearch'] = query
 
-  raw_result = _wiki_request(search_params)
+  raw_result = _wiki_request(agent, search_params)
 
   if raw_result['query'].get('searchinfo'):
     return raw_result['query']['searchinfo']['suggestion']
@@ -202,7 +255,7 @@ def suggest(query):
   return None
 
 
-def random(pages=1):
+def random(pages=1,agent=global_agent):
   '''
   Get a list of random Wikipedia article titles.
 
@@ -219,7 +272,7 @@ def random(pages=1):
     'rnlimit': pages,
   }
 
-  request = _wiki_request(query_params)
+  request = _wiki_request(agent, query_params)
   titles = [page['title'] for page in request['query']['random']]
 
   if len(titles) == 1:
@@ -229,7 +282,7 @@ def random(pages=1):
 
 
 @cache
-def summary(title, sentences=0, chars=0, auto_suggest=True, redirect=True):
+def summary(title, sentences=0, chars=0, auto_suggest=True, redirect=True, agent=global_agent):
   '''
   Plain text summary of the page.
 
@@ -245,7 +298,7 @@ def summary(title, sentences=0, chars=0, auto_suggest=True, redirect=True):
 
   # use auto_suggest and redirect to get the correct article
   # also, use page's error checking to raise DisambiguationError if necessary
-  page_info = page(title, auto_suggest=auto_suggest, redirect=redirect)
+  page_info = page(title, auto_suggest=auto_suggest, redirect=redirect, agent=agent)
   title = page_info.title
   pageid = page_info.pageid
 
@@ -262,13 +315,13 @@ def summary(title, sentences=0, chars=0, auto_suggest=True, redirect=True):
   else:
     query_params['exintro'] = ''
 
-  request = _wiki_request(query_params)
-  summary = request['query']['pages'][pageid]['extract']
+  request = _wiki_request(site.api_url, query_params)
+  _summary = request['query']['pages'][pageid]['extract']
 
-  return summary
+  return _summary
 
 
-def page(title=None, pageid=None, auto_suggest=True, redirect=True, preload=False):
+def page(title=None, pageid=None, auto_suggest=True, redirect=True, preload=False, agent=global_agent):
   '''
   Get a WikipediaPage object for the page with title `title` or the pageid
   `pageid` (mutually exclusive).
@@ -281,18 +334,18 @@ def page(title=None, pageid=None, auto_suggest=True, redirect=True, preload=Fals
   * redirect - allow redirection without raising RedirectError
   * preload - load content, summary, images, references, and links during initialization
   '''
-
+  pprint.pprint(["agent1",agent.api_url])
   if title is not None:
     if auto_suggest:
-      results, suggestion = search(title, results=1, suggestion=True)
+      results, suggestion = search(title, results=1, suggestion=True, agent=agent)
       try:
         title = suggestion or results[0]
       except IndexError:
         # if there is no suggestion or search results, the page doesn't exist
         raise PageError(title)
-    return WikipediaPage(title, redirect=redirect, preload=preload)
+    return WikipediaPage(agent, title, redirect=redirect, preload=preload)
   elif pageid is not None:
-    return WikipediaPage(pageid=pageid, preload=preload)
+    return WikipediaPage(agent, pageid=pageid, preload=preload)
   else:
     raise ValueError("Either a title or a pageid must be specified")
 
@@ -304,7 +357,8 @@ class WikipediaPage(object):
   Uses property methods to filter data from the raw HTML.
   '''
 
-  def __init__(self, title=None, pageid=None, redirect=True, preload=False, original_title=''):
+  def __init__(self, agent, title=None, pageid=None, redirect=True, preload=False, original_title=''):
+    self.agent = agent
     if title is not None:
       self.title = title
       self.original_title = original_title or title
@@ -350,7 +404,7 @@ class WikipediaPage(object):
     else:
       query_params['pageids'] = self.pageid
 
-    request = _wiki_request(query_params)
+    request = _wiki_request(self.agent, query_params)
 
     query = request['query']
     pageid = list(query['pages'].keys())[0]
@@ -381,7 +435,7 @@ class WikipediaPage(object):
         assert redirects['from'] == from_title, ODD_ERROR_MESSAGE
 
         # change the title and reload the whole object
-        self.__init__(redirects['to'], redirect=redirect, preload=preload)
+        self.__init__(self.agent, redirects['to'], redirect=redirect, preload=preload)
 
       else:
         raise RedirectError(getattr(self, 'title', page['title']))
@@ -400,7 +454,7 @@ class WikipediaPage(object):
         query_params['pageids'] = self.pageid
       else:
         query_params['titles'] = self.title
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent, query_params)
       html = request['query']['pages'][pageid]['revisions'][0]['*']
 
       lis = BeautifulSoup(html).find_all('li')
@@ -427,7 +481,7 @@ class WikipediaPage(object):
       params = query_params.copy()
       params.update(last_continue)
 
-      request = _wiki_request(params)
+      request = _wiki_request(self.agent, params)
 
       if 'query' not in request:
         break
@@ -468,7 +522,7 @@ class WikipediaPage(object):
         'titles': self.title
       }
 
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent, query_params)
       self._html = request['query']['pages'][self.pageid]['revisions'][0]['*']
 
     return self._html
@@ -483,7 +537,7 @@ class WikipediaPage(object):
       'ids': self.title
     }
     
-    request = _wiki_request(query_params)
+    request = _wiki_request(self.agent, query_params)
     return request
 
   @property
@@ -502,7 +556,7 @@ class WikipediaPage(object):
          query_params['titles'] = self.title
       else:
          query_params['pageids'] = self.pageid
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent,query_params)
       self._content     = request['query']['pages'][self.pageid]['extract']
       self._revision_id = request['query']['pages'][self.pageid]['revisions'][0]['revid']
       self._parent_id   = request['query']['pages'][self.pageid]['revisions'][0]['parentid']
@@ -557,7 +611,7 @@ class WikipediaPage(object):
       else:
          query_params['pageids'] = self.pageid
 
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent,query_params)
       self._summary = request['query']['pages'][self.pageid]['extract']
 
     return self._summary
@@ -594,7 +648,7 @@ class WikipediaPage(object):
         'titles': self.title,
       }
 
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent,query_params)
 
       if 'query' in request:
         coordinates = request['query']['pages'][self.pageid]['coordinates']
@@ -675,7 +729,7 @@ class WikipediaPage(object):
       }
       query_params.update(self.__title_query_param)
 
-      request = _wiki_request(query_params)
+      request = _wiki_request(self.agent,query_params)
       self._sections = [section['line'] for section in request['parse']['sections']]
 
     return self._sections
@@ -707,7 +761,7 @@ class WikipediaPage(object):
 
 
 @cache
-def languages():
+def languages(agent=global_agent):
   '''
   List all the currently supported language prefixes (usually ISO language code).
 
@@ -717,7 +771,7 @@ def languages():
   Returns: dict of <prefix>: <local_lang_name> pairs. To get just a list of prefixes,
   use `wikipedia.languages().keys()`.
   '''
-  response = _wiki_request({
+  response = _wiki_request(agent, {
     'meta': 'siteinfo',
     'siprop': 'languages'
   })
@@ -739,37 +793,6 @@ def donate():
   webbrowser.open('https://donate.wikimedia.org/w/index.php?title=Special:FundraiserLandingPage', new=2)
 
 
-def _wiki_request(params):
-  '''
-  Make a request to the Wikipedia API using the given search parameters.
-  Returns a parsed dict of the JSON response.
-  '''
-  global RATE_LIMIT_LAST_CALL
-  global USER_AGENT
-
-  params['format'] = 'json'
-  if not 'action' in params:
-    params['action'] = 'query'
-
-  headers = {
-    'User-Agent': USER_AGENT
-  }
-
-  if RATE_LIMIT and RATE_LIMIT_LAST_CALL and \
-    RATE_LIMIT_LAST_CALL + RATE_LIMIT_MIN_WAIT > datetime.now():
-
-    # it hasn't been long enough since the last API call
-    # so wait until we're in the clear to make the request
-
-    wait_time = (RATE_LIMIT_LAST_CALL + RATE_LIMIT_MIN_WAIT) - datetime.now()
-    time.sleep(int(wait_time.total_seconds()))
-
-  #debug(pprint.pformat({"DEBUG": "",'URL':API_URL, 'params':params, 'headers':headers}))
-  pprint.pprint({'URL':API_URL, 'params':params, 'headers':headers})
-
-  r = requests.get(API_URL, params=params, headers=headers)
-
-  if RATE_LIMIT:
-    RATE_LIMIT_LAST_CALL = datetime.now()
-
-  return r.json()
+def set_lang(prefix, agent=global_agent):
+  global global_agent
+  global_agent.set_lang(prefix)
