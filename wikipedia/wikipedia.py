@@ -16,7 +16,7 @@ import pprint
 
 RATE_LIMIT = False
 RATE_LIMIT_MIN_WAIT = None
-USER_AGENT = 'wikipedia (https://github.com/goldsmith/Wikipedia/)'
+USER_AGENT = 'wikipedia (https://github.com/speedydeletion/Wikipedia/)'
 #global_agent=None
 
 def _wiki_request(agent, params):
@@ -102,6 +102,9 @@ class Agent :
                 preload=preload, 
                 agent=self)
 
+  def category_members(self, query, results=10, suggestion=False):
+    return category_members(self, query=query, results=results, suggestion=suggestion, agent=self)
+
 global_agent=Agent()
 
 def set_user_agent(user_agent_string):
@@ -176,6 +179,38 @@ def search(query, results=10, suggestion=False,agent=global_agent):
       raise HTTPTimeoutError(query)
     else:
       raise WikipediaException(raw_results['error']['info'])
+
+  search_results = (d['title'] for d in raw_results['query']['search'])
+
+  if suggestion:
+    if raw_results['query'].get('searchinfo'):
+      return list(search_results), raw_results['query']['searchinfo']['suggestion']
+    else:
+      return list(search_results), None
+
+  return list(search_results)
+
+@cache
+def category_members(query, results=10, suggestion=False,agent=global_agent):
+  '''
+  '''
+
+  search_params = {
+    'list': 'categorymembers',
+    'srprop': '',
+    'srlimit': results,
+    'limit': results,
+    'cmtitle': query
+  }
+  raw_results = _wiki_request(agent,search_params)
+
+  if 'error' in raw_results:
+    if raw_results['error']['info'] in ('HTTP request timed out.', 'Pool queue is full'):
+      raise HTTPTimeoutError(query)
+    else:
+      raise WikipediaException(raw_results['error']['info'])
+
+  pprint.pprint(raw_results)
 
   search_results = (d['title'] for d in raw_results['query']['search'])
 
@@ -491,8 +526,11 @@ class WikipediaPage(object):
         for datum in pages.values():  # in python 3.3+: "yield from pages.values()"
           yield datum
       else:
-        for datum in pages[self.pageid][prop]:
-          yield datum
+        if prop in pages[self.pageid]:
+          for datum in pages[self.pageid][prop]:
+            yield datum
+        else:
+          pprint.pprint(['missing',pages[self.pageid], prop])
 
       if 'continue' not in request:
         break
@@ -529,11 +567,24 @@ class WikipediaPage(object):
 
   def wbgetentities(self):
     '''
-    Gget Wikibase
+    Get Wikibase
 
     '''
     query_params = {
       'action': 'wbgetentities',
+      'ids': self.title
+    }
+    
+    request = _wiki_request(self.agent, query_params)
+    return request
+
+  def category_members(self):
+    '''
+    Cat members
+    '''
+    query_params = {
+      'action': 'search',
+      'list': 'categorymembers',
       'ids': self.title
     }
     
