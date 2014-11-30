@@ -190,37 +190,38 @@ def search(query, results=10, suggestion=False,agent=global_agent):
 
   return list(search_results)
 
-@cache
-def category_members(query, results=10, suggestion=False,agent=global_agent):
-  '''
-  '''
+# @cache
+# def category_members(query, results=10, suggestion=False,agent=global_agent):
+#   '''
+#   '''
 
-  search_params = {
-    'list': 'categorymembers',
-    'srprop': '',
-    'srlimit': results,
-    'limit': results,
-    'cmtitle': query
-  }
-  raw_results = _wiki_request(agent,search_params)
+#   search_params = {
+#     'list': 'categorymembers',
+#     #'srprop': '',
+#     'continue' :'', # new format
+#     #'srlimit': results,
+#     #'limit': results,
+#     'cmtitle': query,
 
-  if 'error' in raw_results:
-    if raw_results['error']['info'] in ('HTTP request timed out.', 'Pool queue is full'):
-      raise HTTPTimeoutError(query)
-    else:
-      raise WikipediaException(raw_results['error']['info'])
+#   }
+#   raw_results = _wiki_request(agent,search_params)
 
-  pprint.pprint(raw_results)
+#   if 'error' in raw_results:
+#     if raw_results['error']['info'] in ('HTTP request timed out.', 'Pool queue is full'):
+#       raise HTTPTimeoutError(query)
+#     else:
+#       raise WikipediaException(raw_results['error']['info'])
 
-  search_results = (d['title'] for d in raw_results['query']['search'])
+#   search_results = (d['title'] for d in raw_results['query']['categorymembers'])
 
-  if suggestion:
-    if raw_results['query'].get('searchinfo'):
-      return list(search_results), raw_results['query']['searchinfo']['suggestion']
-    else:
-      return list(search_results), None
+#   for page in self.__continued_query({}):
+#     pprint.pprint(page)
 
-  return list(search_results)
+#   #pprint.pprint(raw_results)    
+#   pprint.pprint(search_results)
+
+#   return list(search_results)
+
 
 
 @cache
@@ -537,6 +538,35 @@ class WikipediaPage(object):
 
       last_continue = request['continue']
 
+  def __continued_query_cats(self, query_params, key):
+    '''
+    Based on https://www.mediawiki.org/wiki/API:Query#Continuing_queries
+    '''
+    query_params.update(self.__title_query_param)
+
+    last_continue = {}
+    prop = query_params.get('prop', None)
+
+    while True:
+      params = query_params.copy()
+      params.update(last_continue)
+
+      request = _wiki_request(self.agent, params)
+
+      if 'query' not in request:
+        break
+
+      pages = request['query'][key]
+      pprint.pprint(["PAGES",pages])
+      for p in pages:
+        pprint.pprint(["PAGE",p])
+        yield p
+
+      if 'continue' not in request:
+        break
+
+      last_continue = request['continue']
+
   @property
   def __title_query_param(self):
     if getattr(self, 'title', None) is not None:
@@ -583,13 +613,20 @@ class WikipediaPage(object):
     Cat members
     '''
     query_params = {
-      'action': 'search',
+      'action': 'query',
       'list': 'categorymembers',
-      'ids': self.title
+      'continue' :'', # new format
+      #'cmtitle': self.title,
+      'cmpageid': self.pageid
     }
     
-    request = _wiki_request(self.agent, query_params)
-    return request
+    #    request = _wiki_request(self.agent, query_params)
+    #    c = request[u'continue']
+    pages = []
+    for p in self.__continued_query_cats(query_params, 'categorymembers') :
+      pages.append(p)
+
+    return pages
 
   @property
   def content(self):
